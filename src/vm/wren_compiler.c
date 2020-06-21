@@ -354,6 +354,8 @@ struct sCompiler
   ObjFn* fn;
   
   ObjMap* constants;
+
+  ObjModule* coreModule;
 };
 
 // Describes where a variable is declared.
@@ -417,6 +419,24 @@ static void lexError(Parser* parser, const char* format, ...)
   va_start(args, format);
   printError(parser, parser->currentLine, "Error", format, args);
   va_end(args);
+}
+
+static int findModuleVariable(Compiler* compiler, const char* name, int length) {
+  ObjModule* module = compiler->parser->module;
+  int idx = wrenSymbolTableFind(&module->variableNames, name, length);
+
+  if (idx == -1) {
+    ObjModule* coreModule = compiler->coreModule;
+    idx = wrenSymbolTableFind(&coreModule->variableNames, name, length);
+    if (idx != -1) {
+      idx = wrenDefineVariable(compiler->parser->vm, module,
+        coreModule->variableNames.data[idx]->value,
+        coreModule->variableNames.data[idx]->length,
+        coreModule->variables.data[idx], NULL);
+    }
+  }
+
+  return idx;
 }
 
 // Outputs a compile or syntax error. This also marks the compilation as having
@@ -543,11 +563,15 @@ static void initCompiler(Compiler* compiler, Parser* parser, Compiler* parent,
   {
     // Compiling top-level code, so the initial scope is module-level.
     compiler->scopeDepth = -1;
+    // Copied from getModule()
+    Value moduleValue = wrenMapGet(parser->vm->modules, NULL_VAL);
+    compiler->coreModule = !IS_UNDEFINED(moduleValue) ? AS_MODULE(moduleValue) : NULL;
   }
   else
   {
     // The initial scope for functions and methods is local scope.
     compiler->scopeDepth = 0;
+    compiler->coreModule = parent->coreModule;
   }
   
   compiler->fn = wrenNewFunction(parser->vm, parser->module,
@@ -1491,8 +1515,7 @@ static Variable resolveName(Compiler* compiler, const char* name, int length)
   if (variable.index != -1) return variable;
 
   variable.scope = SCOPE_MODULE;
-  variable.index = wrenSymbolTableFind(&compiler->parser->module->variableNames,
-                                       name, length);
+  variable.index = findModuleVariable(compiler, name, length);
   return variable;
 }
 
@@ -1977,8 +2000,7 @@ static void loadThis(Compiler* compiler)
 // Pushes the value for a module-level variable implicitly imported from core.
 static void loadCoreVariable(Compiler* compiler, const char* name)
 {
-  int symbol = wrenSymbolTableFind(&compiler->parser->module->variableNames,
-                                   name, strlen(name));
+  int symbol = findModuleVariable(compiler, name, strlen(name));
   ASSERT(symbol != -1, "Should have already defined core name.");
   emitShortArg(compiler, CODE_LOAD_MODULE_VAR, symbol);
 }
@@ -2236,8 +2258,7 @@ static void name(Compiler* compiler, bool canAssign)
 
   // Otherwise, look for a module-level variable with the name.
   variable.scope = SCOPE_MODULE;
-  variable.index = wrenSymbolTableFind(&compiler->parser->module->variableNames,
-                                       token->start, token->length);
+  variable.index = findModuleVariable(compiler, token->start, token->length);
   if (variable.index == -1)
   {
     // Implicitly define a module-level variable in
