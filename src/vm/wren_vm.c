@@ -449,16 +449,6 @@ static ObjClosure* compileInModule(WrenVM* vm, Value name, const char* source,
     // Store it in the VM's module registry so we don't load the same module
     // multiple times.
     wrenMapSet(vm, vm->modules, name, OBJ_VAL(module));
-
-    // Implicitly import the core module.
-    ObjModule* coreModule = getModule(vm, NULL_VAL);
-    for (int i = 0; i < coreModule->variables.count; i++)
-    {
-      wrenDefineVariable(vm, module,
-                         coreModule->variableNames.data[i]->value,
-                         coreModule->variableNames.data[i]->length,
-                         coreModule->variables.data[i], NULL);
-    }
   }
 
   ObjFn* fn = wrenCompile(vm, module, source, isExpression, printErrors);
