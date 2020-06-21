@@ -1445,6 +1445,475 @@ WrenInterpretResult wrenInterpret(WrenVM* vm, const char* module,
   return result;
 }
 
+void wrenPrint(ObjFn* fn) {
+  ObjModule* modulee = fn->module;
+  printf("--- Module name\r\n");
+  printf("%s\r\n", modulee->name->value);
+  printf("--- Module variables\r\n");
+  for (int i = 0; i < modulee->variables.count; i++) {
+    Value v = modulee->variables.data[i];
+    const char* descr = "-";
+    if (IS_OBJ(v)) {
+      Obj* obj = AS_OBJ(v);
+      switch (obj->type) {
+      case OBJ_CLASS: descr = "OBJ_CLASS"; break;
+      case OBJ_CLOSURE: descr = "OBJ_CLOSURE"; break;
+      case OBJ_FIBER: descr = "OBJ_FIBER"; break;
+      case OBJ_FN: descr = "OBJ_FN"; break;
+      case OBJ_FOREIGN: descr = "OBJ_FOREIGN"; break;
+      case OBJ_INSTANCE: descr = "OBJ_INSTANCE"; break;
+      case OBJ_LIST: descr = "OBJ_LIST"; break;
+      case OBJ_MAP: descr = "OBJ_MAP"; break;
+      case OBJ_MODULE: descr = "OBJ_MODULE"; break;
+      case OBJ_RANGE: descr = "OBJ_RANGE"; break;
+      case OBJ_STRING: descr = "OBJ_STRING"; break;
+      case OBJ_UPVALUE: descr = "OBJ_UPVALUE"; break;
+      default: descr = "OBJ_???"; break;
+      }
+    }
+    if (IS_NUM(v)) descr = "num";
+    if (IS_FALSE(v)) descr = "false";
+    if (IS_NULL(v)) descr = "null";
+    if (IS_UNDEFINED(v)) descr = "undefined";
+    printf("#%u: %u, %s, %s\r\n", i, v, descr, modulee->variableNames.data[i]->value);
+  }
+
+  printf("--- Function constants\r\n");
+  for (int i = 0; i < fn->constants.count; i++) {
+    Value v = fn->constants.data[i];
+    const char* descr = "-";
+    if (IS_OBJ(v)) {
+      Obj* obj = AS_OBJ(v);
+      switch (obj->type) {
+      case OBJ_CLASS: descr = "OBJ_CLASS"; break;
+      case OBJ_CLOSURE: descr = "OBJ_CLOSURE"; break;
+      case OBJ_FIBER: descr = "OBJ_FIBER"; break;
+      case OBJ_FN: descr = "OBJ_FN"; break;
+      case OBJ_FOREIGN: descr = "OBJ_FOREIGN"; break;
+      case OBJ_INSTANCE: descr = "OBJ_INSTANCE"; break;
+      case OBJ_LIST: descr = "OBJ_LIST"; break;
+      case OBJ_MAP: descr = "OBJ_MAP"; break;
+      case OBJ_MODULE: descr = "OBJ_MODULE"; break;
+      case OBJ_RANGE: descr = "OBJ_RANGE"; break;
+      case OBJ_STRING: descr = "OBJ_STRING"; break;
+      case OBJ_UPVALUE: descr = "OBJ_UPVALUE"; break;
+      default: descr = "OBJ_???"; break;
+      }
+    }
+    if (IS_NUM(v)) descr = "num";
+    if (IS_FALSE(v)) descr = "false";
+    if (IS_NULL(v)) descr = "null";
+    if (IS_UNDEFINED(v)) descr = "undefined";
+    printf("#%u: %u, %s\r\n", i, v, descr);
+  }
+
+  printf("--- Code\r\n");
+
+#define READ_BYTE()  (*ip++)
+#define READ_SHORT() (ip += 2, (uint16_t)((ip[-2] << 8) | ip[-1]))
+
+  uint8_t* ip = fn->code.data;
+  Code instruction;
+loop:
+  switch (instruction = READ_BYTE()) {
+    CASE_CODE(LOAD_LOCAL_0) :
+      CASE_CODE(LOAD_LOCAL_1) :
+      CASE_CODE(LOAD_LOCAL_2) :
+      CASE_CODE(LOAD_LOCAL_3) :
+      CASE_CODE(LOAD_LOCAL_4) :
+      CASE_CODE(LOAD_LOCAL_5) :
+      CASE_CODE(LOAD_LOCAL_6) :
+      CASE_CODE(LOAD_LOCAL_7) :
+      CASE_CODE(LOAD_LOCAL_8) :
+      //PUSH(stackStart[instruction - CODE_LOAD_LOCAL_0]);
+      printf("LOAD_LOCAL #%u\r\n", instruction - CODE_LOAD_LOCAL_0);
+    DISPATCH();
+
+    CASE_CODE(LOAD_LOCAL) :
+      //PUSH(stackStart[READ_BYTE()]);
+      printf("LOAD_LOCAL #%u\r\n", READ_BYTE());
+    DISPATCH();
+
+    CASE_CODE(LOAD_FIELD_THIS) :
+    {
+      uint8_t field = READ_BYTE();
+      printf("LOAD_FIELD_THIS #%u\r\n", field);
+      DISPATCH();
+    }
+
+    CASE_CODE(POP) : printf("POP\r\n"); DISPATCH();
+    CASE_CODE(NULL) : printf("PUSH_NULL\r\n"); DISPATCH();
+    CASE_CODE(FALSE) : printf("PUSH_FALSE\r\n"); DISPATCH();
+    CASE_CODE(TRUE) : printf("PUSH_TRUE\r\n"); DISPATCH();
+
+    CASE_CODE(STORE_LOCAL) :
+      printf("STORE_LOCAL #%u\r\n", READ_BYTE());
+    DISPATCH();
+
+    CASE_CODE(CONSTANT) :
+      printf("PUSH_CONSTANT #%u\r\n", READ_SHORT());
+    DISPATCH();
+
+    {
+      // The opcodes for doing method and superclass calls share a lot of code.
+      // However, doing an if() test in the middle of the instruction sequence
+      // to handle the bit that is special to super calls makes the non-super
+      // call path noticeably slower.
+      //
+      // Instead, we do this old school using an explicit goto to share code for
+      // everything at the tail end of the call-handling code that is the same
+      // between normal and superclass calls.
+      int numArgs;
+      int symbol;
+
+      CASE_CODE(CALL_0) :
+        CASE_CODE(CALL_1) :
+        CASE_CODE(CALL_2) :
+        CASE_CODE(CALL_3) :
+        CASE_CODE(CALL_4) :
+        CASE_CODE(CALL_5) :
+        CASE_CODE(CALL_6) :
+        CASE_CODE(CALL_7) :
+        CASE_CODE(CALL_8) :
+        CASE_CODE(CALL_9) :
+        CASE_CODE(CALL_10) :
+        CASE_CODE(CALL_11) :
+        CASE_CODE(CALL_12) :
+        CASE_CODE(CALL_13) :
+        CASE_CODE(CALL_14) :
+        CASE_CODE(CALL_15) :
+        CASE_CODE(CALL_16) :
+        // Add one for the implicit receiver argument.
+        numArgs = instruction - CODE_CALL_0 + 1;
+      symbol = READ_SHORT();
+
+      printf("CALL #%u (%u)\r\n", symbol, numArgs);
+      DISPATCH();
+
+      CASE_CODE(SUPER_0) :
+        CASE_CODE(SUPER_1) :
+        CASE_CODE(SUPER_2) :
+        CASE_CODE(SUPER_3) :
+        CASE_CODE(SUPER_4) :
+        CASE_CODE(SUPER_5) :
+        CASE_CODE(SUPER_6) :
+        CASE_CODE(SUPER_7) :
+        CASE_CODE(SUPER_8) :
+        CASE_CODE(SUPER_9) :
+        CASE_CODE(SUPER_10) :
+        CASE_CODE(SUPER_11) :
+        CASE_CODE(SUPER_12) :
+        CASE_CODE(SUPER_13) :
+        CASE_CODE(SUPER_14) :
+        CASE_CODE(SUPER_15) :
+        CASE_CODE(SUPER_16) :
+        // Add one for the implicit receiver argument.
+        numArgs = instruction - CODE_SUPER_0 + 1;
+      symbol = READ_SHORT();
+
+      int superclass = READ_SHORT();
+      printf("SUPER #%u.#%u (%u)\r\n", superclass, symbol, numArgs);
+      DISPATCH();
+    }
+
+    CASE_CODE(LOAD_UPVALUE) :
+    {
+      printf("LOAD_UPVALUE #%u\r\n", READ_BYTE());
+      DISPATCH();
+    }
+
+    CASE_CODE(STORE_UPVALUE) :
+    {
+      printf("STORE_UPVALUE #%u\r\n", READ_BYTE());
+      DISPATCH();
+    }
+
+    CASE_CODE(LOAD_MODULE_VAR) :
+      printf("LOAD_MODULE_VAR #%u\r\n", READ_SHORT());
+    DISPATCH();
+
+    CASE_CODE(STORE_MODULE_VAR) :
+      printf("STORE_MODULE_VAR #%u\r\n", READ_SHORT());
+    DISPATCH();
+
+    CASE_CODE(STORE_FIELD_THIS) :
+    {
+      uint8_t field = READ_BYTE();
+      printf("STORE_FIELD_THIS #%u\r\n", field);
+      DISPATCH();
+    }
+
+    CASE_CODE(LOAD_FIELD) :
+    {
+      uint8_t field = READ_BYTE();
+      printf("LOAD_FIELD #%u\r\n", field);
+      DISPATCH();
+    }
+
+    CASE_CODE(STORE_FIELD) :
+    {
+      uint8_t field = READ_BYTE();
+      printf("STORE_FIELD #%u\r\n", field);
+      DISPATCH();
+    }
+
+    CASE_CODE(JUMP) :
+    {
+      uint16_t offset = READ_SHORT();
+      printf("JUMP %u\r\n", offset);
+      DISPATCH();
+    }
+
+    CASE_CODE(LOOP) :
+    {
+      // Jump back to the top of the loop.
+      uint16_t offset = READ_SHORT();
+      printf("LOOP %u\r\n", offset);
+      DISPATCH();
+    }
+
+    CASE_CODE(JUMP_IF) :
+    {
+      uint16_t offset = READ_SHORT();
+
+      printf("JUMP_IF %u\r\n", offset);
+      DISPATCH();
+    }
+
+    CASE_CODE(AND) :
+    {
+      uint16_t offset = READ_SHORT();
+      printf("AND %u\r\n", offset);
+      DISPATCH();
+    }
+
+    CASE_CODE(OR) :
+    {
+      uint16_t offset = READ_SHORT();
+      printf("OR %u\r\n", offset);
+      DISPATCH();
+    }
+
+    CASE_CODE(CLOSE_UPVALUE) :
+      printf("CLOSE_UPVALUE\r\n");
+    DISPATCH();
+
+    CASE_CODE(RETURN) :
+    {
+      printf("RETURN\r\n");
+      DISPATCH();
+    }
+
+    CASE_CODE(CONSTRUCT) :
+      printf("CONSTRUCT\r\n");
+    DISPATCH();
+
+    CASE_CODE(FOREIGN_CONSTRUCT) :
+      printf("FOREIGN_CONSTRUCT\r\n");
+    DISPATCH();
+
+    CASE_CODE(CLOSURE) :
+    {
+      uint16_t constantIdx = READ_SHORT();
+      printf("CLOSURE #%u", constantIdx);
+      ObjFn* function = AS_FN(fn->constants.data[constantIdx]);
+      for (int i = 0; i < function->numUpvalues; i++)
+      {
+        uint8_t isLocal = READ_BYTE();
+        uint8_t index = READ_BYTE();
+        printf(" up(%u, #%u)", isLocal, index);
+      }
+      printf("\r\n", constantIdx);
+      DISPATCH();
+    }
+
+    CASE_CODE(CLASS) :
+    {
+      printf("CLASS %u\r\n", READ_BYTE());
+      DISPATCH();
+    }
+
+    CASE_CODE(FOREIGN_CLASS) :
+    {
+      printf("FOREIGN_CLASS\r\n");
+      DISPATCH();
+    }
+
+    CASE_CODE(METHOD_INSTANCE) :
+    {
+      uint16_t symbol = READ_SHORT();
+      printf("METHOD_INSTANCE #%u\r\n", symbol);
+      DISPATCH();
+    }
+
+    CASE_CODE(METHOD_STATIC) :
+    {
+      uint16_t symbol = READ_SHORT();
+      printf("METHOD_STATIC #%u\r\n", symbol);
+      DISPATCH();
+    }
+
+    CASE_CODE(END_MODULE) :
+    {
+      printf("END_MODULE\r\n");
+      DISPATCH();
+    }
+
+    CASE_CODE(IMPORT_MODULE) :
+    {
+      printf("IMPORT_MODULE #%u\r\n", READ_SHORT());
+      DISPATCH();
+    }
+
+    CASE_CODE(IMPORT_VARIABLE) :
+    {
+      printf("IMPORT_VARIABLE #%u\r\n", READ_SHORT());
+      DISPATCH();
+    }
+
+    CASE_CODE(END) :
+      // A CODE_END should always be preceded by a CODE_RETURN. If we get here,
+      // the compiler generated wrong code.
+      printf("END\r\n");
+  }
+
+#undef READ_BYTE
+#undef READ_SHORT
+}
+
+#define fwrite_uint64(fOut, val) {uint64_t val_uint64=val; fwrite(&val_uint64, sizeof(uint64_t), 1, fOut);}
+#define fwrite_uint32(fOut, val) {uint32_t val_uint32=val; fwrite(&val_uint32, sizeof(uint32_t), 1, fOut);}
+#define fwrite_uint8(fOut, val) {uint8_t val_uint8=val; fwrite(&val_uint8, sizeof(uint8_t), 1, fOut);}
+#define fwrite_ObjString(fOut, val) {uint32_t l = val->length; fwrite_uint32(fOut, l); fwrite((val->value), 1, l, fOut);}
+#define fwrite_BlockStart(fOut, blockType) {\
+    fwrite_uint32(fOut, 0);\
+    blockStart = ftell(fOut);\
+    fwrite_uint8(fOut, blockType);\
+  }
+#define fwrite_BlockEnd(fOut) {\
+    blockEnd = ftell(fOut);\
+    fseek(fOut, blockStart-4, SEEK_SET);\
+    fwrite_uint32(fOut, blockEnd - blockStart);\
+    fseek(fOut, blockEnd, SEEK_SET);\
+  }
+#define stackPush(stack, count, capacity, value) {\
+    if (count == capacity) UNREACHABLE();\
+    stack[count] = value;\
+    count += 1;\
+  }
+
+#define WRB_BLOCKTYPE_HEADER 1
+#define WRB_BLOCKTYPE_MODULE 2
+#define WRB_BLOCKTYPE_FUNCTION 3
+#define WRB_BLOCKTYPE_CORETYPE 4
+
+long blockStart;
+long blockEnd;
+const int objectsStackCapacity = 100;
+int objectsStackCount = 0;
+Obj** objectsStack;
+
+void writeFn(FILE* fOut, ObjFn* fn) {
+  fwrite_BlockStart(fOut, WRB_BLOCKTYPE_FUNCTION);
+  fwrite_uint32(fOut, (uint32_t)(fn));
+  fwrite_uint32(fOut, OBJ_VAL(fn->module));
+  fwrite_uint32(fOut, fn->maxSlots);
+  fwrite_uint32(fOut, fn->numUpvalues);
+  fwrite_uint32(fOut, fn->arity);
+  // Var count
+  fwrite_uint32(fOut, fn->constants.count);
+  for (int i = 0; i < fn->constants.count; i++) {
+    Value v = fn->constants.data[i];
+    if (IS_OBJ(v)) {
+      stackPush(objectsStack, objectsStackCount, objectsStackCapacity, AS_OBJ(v));
+    }
+    fwrite_uint64(fOut, v);
+  }
+  // Code
+  fwrite_uint32(fOut, fn->code.count);
+  fwrite(fn->code.data, 1, fn->code.count, fOut);
+  fwrite_BlockEnd(fOut);
+}
+
+WrenInterpretResult wrenCompileToFile(WrenVM* vm, const char* module, const char* source)
+{
+  ObjClosure* closure = wrenCompileSource(vm, module, source, false, true);
+  if (closure == NULL) return WREN_RESULT_COMPILE_ERROR;
+
+  ObjFn* fn = closure->fn;
+
+  FILE* fOut = fopen("out.wrb", "wb");
+  if (fOut == NULL) return WREN_RESULT_COMPILE_ERROR;
+
+  objectsStack = malloc(sizeof(Obj*) * objectsStackCapacity);
+
+  // Write header
+  fwrite_BlockStart(fOut, WRB_BLOCKTYPE_HEADER);
+  fwrite_uint8(fOut, (uint8_t)('W')); // Magic string header
+  fwrite_uint8(fOut, (uint8_t)('R'));
+  fwrite_uint8(fOut, (uint8_t)('B'));
+  fwrite_uint8(fOut, 1); // Binary format version
+  fwrite_BlockEnd(fOut);
+
+  // Use the pointer value as object id in the file, so there's no need to remap everything
+  ObjModule* modulee = closure->fn->module;
+  fwrite_BlockStart(fOut, WRB_BLOCKTYPE_MODULE);
+  fwrite_uint32(fOut, (uint32_t)(modulee));
+  // Module name
+  fwrite_ObjString(fOut, modulee->name);
+  // Var count
+  fwrite_uint32(fOut, modulee->variables.count);
+  for (int i = 0; i < modulee->variables.count; i++) {
+    Value v = modulee->variables.data[i];
+    if (IS_OBJ(v)) {
+      stackPush(objectsStack, objectsStackCount, objectsStackCapacity, AS_OBJ(v));
+    }
+    fwrite_uint64(fOut, v);
+  }
+  fwrite_BlockEnd(fOut);
+
+
+  // Write function
+  //writeFn(fOut, fn);
+  stackPush(objectsStack, objectsStackCount, objectsStackCapacity, fn);
+
+  ObjModule* coreModule = getModule(vm, NULL_VAL);
+  int idxObjStack = 0;
+  while (idxObjStack < objectsStackCount) {
+    Obj* obj = objectsStack[idxObjStack];
+
+    if (obj->type == OBJ_FN) {
+      writeFn(fOut, (ObjFn*)obj);
+    }
+    else if (obj->type == OBJ_CLASS) {
+      ObjClass* c = (ObjClass*)obj;
+      int idxCoreVar = wrenSymbolTableFind(&coreModule->variableNames, c->name->value, c->name->length);
+      if (idxCoreVar != -1) {
+        // Core object, serialize as such
+        fwrite_BlockStart(fOut, WRB_BLOCKTYPE_CORETYPE);
+        fwrite_uint32(fOut, (uint32_t)(obj));
+        fwrite_ObjString(fOut, c->name);
+        fwrite_BlockEnd(fOut);
+      }
+      else {
+        UNREACHABLE();
+      }
+    }
+    else {
+      UNREACHABLE();
+    }
+
+    idxObjStack += 1;
+  }
+
+  wrenPrint(closure->fn);
+
+  fclose(fOut);
+  free(objectsStack);
+
+  return WREN_RESULT_SUCCESS;
+}
+
 ObjClosure* wrenCompileSource(WrenVM* vm, const char* module, const char* source,
                             bool isExpression, bool printErrors)
 {
