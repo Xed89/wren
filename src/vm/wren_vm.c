@@ -1781,25 +1781,53 @@ loop:
 #undef READ_SHORT
 }
 
+inline uint64_t fread_uint64(FILE* fIn) {
+  uint64_t val;
+  if (fread(&val, sizeof(uint64_t), 1, fIn) != 1) {
+    UNREACHABLE();
+  }
+  return val;
+}
+inline uint32_t fread_uint32(FILE* fIn) {
+  uint32_t val;
+  if (fread(&val, sizeof(uint32_t), 1, fIn) != 1) {
+    UNREACHABLE();
+  }
+  return val;
+}
+inline uint8_t fread_uint8(FILE* fIn) {
+  uint8_t val;
+  if (fread(&val, sizeof(uint8_t), 1, fIn) != 1) {
+    UNREACHABLE();
+  }
+  return val;
+}
+inline ObjString* fread_ObjString(FILE* fIn, WrenVM* vm) {
+  uint32_t length = fread_uint32(fIn);
+  char* chars = malloc(length + 1);
+  if (fread(chars, 1, length, fIn) != length) {
+    UNREACHABLE();
+  }
+  chars[length] = '\0';
+  ObjString* string = AS_STRING(wrenNewStringLength(vm, chars, length));
+  free(chars);
+  return string;
+}
+
 #define fwrite_uint64(fOut, val) {uint64_t val_uint64=val; fwrite(&val_uint64, sizeof(uint64_t), 1, fOut);}
 #define fwrite_uint32(fOut, val) {uint32_t val_uint32=val; fwrite(&val_uint32, sizeof(uint32_t), 1, fOut);}
 #define fwrite_uint8(fOut, val) {uint8_t val_uint8=val; fwrite(&val_uint8, sizeof(uint8_t), 1, fOut);}
 #define fwrite_ObjString(fOut, val) {uint32_t l = val->length; fwrite_uint32(fOut, l); fwrite((val->value), 1, l, fOut);}
 #define fwrite_BlockStart(fOut, blockType) {\
     fwrite_uint32(fOut, 0);\
-    blockStart = ftell(fOut);\
     fwrite_uint8(fOut, blockType);\
+    blockStart = ftell(fOut);\
   }
 #define fwrite_BlockEnd(fOut) {\
     blockEnd = ftell(fOut);\
-    fseek(fOut, blockStart-4, SEEK_SET);\
+    fseek(fOut, blockStart-5, SEEK_SET);\
     fwrite_uint32(fOut, blockEnd - blockStart);\
     fseek(fOut, blockEnd, SEEK_SET);\
-  }
-#define stackPush(stack, count, capacity, value) {\
-    if (count == capacity) UNREACHABLE();\
-    stack[count] = value;\
-    count += 1;\
   }
 
 #define WRB_BLOCKTYPE_HEADER 1
@@ -1813,10 +1841,24 @@ const int objectsStackCapacity = 100;
 int objectsStackCount = 0;
 Obj** objectsStack;
 
+Value stackPush(Obj* obj) {
+  for (int i = 0; i < objectsStackCount; i++) {
+    if (objectsStack[i] == obj) {
+      return OBJ_VAL(i+1);
+    }
+  }
+  if (objectsStackCount == objectsStackCapacity) {
+    UNREACHABLE();
+  }
+  objectsStack[objectsStackCount] = obj;
+  objectsStackCount += 1;
+  // Notice the missing of -1, so we start from 1 instead of from 0 which is the null pointer
+  return OBJ_VAL(objectsStackCount);
+}
+
 void writeFn(FILE* fOut, ObjFn* fn) {
   fwrite_BlockStart(fOut, WRB_BLOCKTYPE_FUNCTION);
-  fwrite_uint32(fOut, (uint32_t)(fn));
-  fwrite_uint32(fOut, OBJ_VAL(fn->module));
+  fwrite_uint64(fOut, stackPush(fn->module));
   fwrite_uint32(fOut, fn->maxSlots);
   fwrite_uint32(fOut, fn->numUpvalues);
   fwrite_uint32(fOut, fn->arity);
@@ -1825,7 +1867,7 @@ void writeFn(FILE* fOut, ObjFn* fn) {
   for (int i = 0; i < fn->constants.count; i++) {
     Value v = fn->constants.data[i];
     if (IS_OBJ(v)) {
-      stackPush(objectsStack, objectsStackCount, objectsStackCapacity, AS_OBJ(v));
+      v = stackPush(AS_OBJ(v));
     }
     fwrite_uint64(fOut, v);
   }
@@ -1835,30 +1877,8 @@ void writeFn(FILE* fOut, ObjFn* fn) {
   fwrite_BlockEnd(fOut);
 }
 
-WrenInterpretResult wrenCompileToFile(WrenVM* vm, const char* module, const char* source)
-{
-  ObjClosure* closure = wrenCompileSource(vm, module, source, false, true);
-  if (closure == NULL) return WREN_RESULT_COMPILE_ERROR;
-
-  ObjFn* fn = closure->fn;
-
-  FILE* fOut = fopen("out.wrb", "wb");
-  if (fOut == NULL) return WREN_RESULT_COMPILE_ERROR;
-
-  objectsStack = malloc(sizeof(Obj*) * objectsStackCapacity);
-
-  // Write header
-  fwrite_BlockStart(fOut, WRB_BLOCKTYPE_HEADER);
-  fwrite_uint8(fOut, (uint8_t)('W')); // Magic string header
-  fwrite_uint8(fOut, (uint8_t)('R'));
-  fwrite_uint8(fOut, (uint8_t)('B'));
-  fwrite_uint8(fOut, 1); // Binary format version
-  fwrite_BlockEnd(fOut);
-
-  // Use the pointer value as object id in the file, so there's no need to remap everything
-  ObjModule* modulee = closure->fn->module;
+void writeModule(FILE* fOut, ObjModule* modulee) {
   fwrite_BlockStart(fOut, WRB_BLOCKTYPE_MODULE);
-  fwrite_uint32(fOut, (uint32_t)(modulee));
   // Module name
   fwrite_ObjString(fOut, modulee->name);
   // Var count
@@ -1866,16 +1886,37 @@ WrenInterpretResult wrenCompileToFile(WrenVM* vm, const char* module, const char
   for (int i = 0; i < modulee->variables.count; i++) {
     Value v = modulee->variables.data[i];
     if (IS_OBJ(v)) {
-      stackPush(objectsStack, objectsStackCount, objectsStackCapacity, AS_OBJ(v));
+      v = stackPush(AS_OBJ(v));
     }
+    fwrite_ObjString(fOut, modulee->variableNames.data[i]);
     fwrite_uint64(fOut, v);
   }
   fwrite_BlockEnd(fOut);
+}
 
+WrenInterpretResult wrenCompileToFile(WrenVM* vm, const char* module, const char* source)
+{
+  ObjClosure* closure = wrenCompileSource(vm, module, source, false, true);
+  if (closure == NULL) return WREN_RESULT_COMPILE_ERROR;
+
+  FILE* fOut = fopen("out.wrb", "wb");
+  if (fOut == NULL) return WREN_RESULT_COMPILE_ERROR;
+
+  objectsStack = malloc(sizeof(Obj*) * objectsStackCapacity);
+  objectsStackCount = 0;
+
+  // Write header
+  fwrite_BlockStart(fOut, WRB_BLOCKTYPE_HEADER);
+  fwrite_uint8(fOut, (uint8_t)('W')); // Magic string header
+  fwrite_uint8(fOut, (uint8_t)('R'));
+  fwrite_uint8(fOut, (uint8_t)('B'));
+  fwrite_uint8(fOut, 1); // Binary format version
+  long blockCountPos = ftell(fOut);
+  fwrite_uint32(fOut, 0); // Blocks count: init to 0 then write later when we know
+  fwrite_BlockEnd(fOut);
 
   // Write function
-  //writeFn(fOut, fn);
-  stackPush(objectsStack, objectsStackCount, objectsStackCapacity, fn);
+  stackPush(closure->fn);
 
   ObjModule* coreModule = getModule(vm, NULL_VAL);
   int idxObjStack = 0;
@@ -1885,13 +1926,15 @@ WrenInterpretResult wrenCompileToFile(WrenVM* vm, const char* module, const char
     if (obj->type == OBJ_FN) {
       writeFn(fOut, (ObjFn*)obj);
     }
+    else if (obj->type == OBJ_MODULE) {
+      writeModule(fOut, (ObjModule*)obj);
+    }
     else if (obj->type == OBJ_CLASS) {
       ObjClass* c = (ObjClass*)obj;
       int idxCoreVar = wrenSymbolTableFind(&coreModule->variableNames, c->name->value, c->name->length);
       if (idxCoreVar != -1) {
         // Core object, serialize as such
         fwrite_BlockStart(fOut, WRB_BLOCKTYPE_CORETYPE);
-        fwrite_uint32(fOut, (uint32_t)(obj));
         fwrite_ObjString(fOut, c->name);
         fwrite_BlockEnd(fOut);
       }
@@ -1908,10 +1951,178 @@ WrenInterpretResult wrenCompileToFile(WrenVM* vm, const char* module, const char
 
   wrenPrint(closure->fn);
 
+  // Go back and write the block count, now we know.
+  fseek(fOut, blockCountPos, SEEK_SET);
+  fwrite_uint32(fOut, objectsStackCount);
+
   fclose(fOut);
   free(objectsStack);
+  objectsStack = NULL;
 
   return WREN_RESULT_SUCCESS;
+}
+
+WrenInterpretResult wrenRunFromFile(WrenVM* vm)
+{
+  FILE* fIn = fopen("out.wrb", "rb");
+  if (fIn == NULL) return WREN_RESULT_COMPILE_ERROR;
+
+  fseek(fIn, 0, SEEK_END);
+  long fsize = ftell(fIn);
+  fseek(fIn, 0, SEEK_SET);
+
+  // Read header
+  if (fread_uint32(fIn) != 8) UNREACHABLE();
+  if (fread_uint8(fIn) != WRB_BLOCKTYPE_HEADER) UNREACHABLE();
+  if (fread_uint8(fIn) != 'W') UNREACHABLE();
+  if (fread_uint8(fIn) != 'R') UNREACHABLE();
+  if (fread_uint8(fIn) != 'B') UNREACHABLE();
+  if (fread_uint8(fIn) != 1) UNREACHABLE();
+  uint32_t blockCount = fread_uint32(fIn);
+  ObjList* blockList = wrenNewList(vm, 0);
+  wrenPushRoot(vm, blockList);
+
+  ObjModule* coreModule = getModule(vm, NULL_VAL);
+
+  while (ftell(fIn) != fsize) {
+    uint32_t blockSize = fread_uint32(fIn);
+    uint8_t blockType = fread_uint8(fIn);
+    long blockStart = ftell(fIn);
+    //printf("Block: %u, size: %u\r\n", blockType, blockSize);
+
+    switch (blockType) {
+      case WRB_BLOCKTYPE_HEADER:
+      {
+        // Already done above
+        UNREACHABLE();
+      } break;
+      case WRB_BLOCKTYPE_MODULE:
+      {
+        ObjString* name = fread_ObjString(fIn, vm);
+        // TODO Check the module is already loaded
+        ObjModule* modulee = wrenNewModule(vm, name);
+        wrenValueBufferWrite(vm, &blockList->elements, OBJ_VAL(modulee));
+
+        // Store it in the VM's module registry
+        wrenMapSet(vm, vm->modules, name, OBJ_VAL(modulee));
+
+        // Load module variables
+        uint32_t varCount = fread_uint32(fIn);
+        for (int i = 0; i < varCount; i++) {
+          uint32_t length = fread_uint32(fIn);
+          char* varName = malloc(length + 1);
+          if (fread(varName, 1, length, fIn) != length) {
+            UNREACHABLE();
+          }
+          varName[length] = '\0';
+
+          Value varValue = fread_uint64(fIn, vm);
+          
+          wrenSymbolTableAdd(vm, &modulee->variableNames, varName, length);
+          wrenValueBufferWrite(vm, &modulee->variables, varValue);
+        }
+      } break;
+      case WRB_BLOCKTYPE_FUNCTION:
+      {
+        ObjFn* fn = wrenNewFunction(vm, NULL, 0);
+        wrenValueBufferWrite(vm, &blockList->elements, OBJ_VAL(fn));
+        fn->module = fread_uint64(fIn);
+        fn->maxSlots = fread_uint32(fIn);
+        fn->numUpvalues = fread_uint32(fIn);
+        fn->arity = fread_uint32(fIn);
+        uint32_t constantsCount = fread_uint32(fIn);
+        for (int i = 0; i < constantsCount; i++) {
+          Value varValue = fread_uint64(fIn, vm);
+          wrenValueBufferWrite(vm, &fn->constants, varValue);
+        }
+
+        uint32_t codeCount = fread_uint32(fIn);
+        uint8_t* code = malloc(sizeof(uint8_t) * codeCount);
+        if (fread(code, sizeof(uint8_t), codeCount, fIn) != codeCount) {
+          UNREACHABLE();
+        }
+        for (int i = 0; i < codeCount; i++) {
+          wrenByteBufferWrite(vm, &fn->code, code[i]);
+        }
+        free(code);
+
+
+      } break;
+      case WRB_BLOCKTYPE_CORETYPE:
+      {
+        ObjString* name = fread_ObjString(fIn, vm);
+        int idxCoreVar = wrenSymbolTableFind(&coreModule->variableNames, name->value, name->length);
+        if (idxCoreVar != -1) {
+          // TODO Verify it's an Obj
+          wrenValueBufferWrite(vm, &blockList->elements, coreModule->variables.data[idxCoreVar]);
+        }
+        else {
+          UNREACHABLE();
+        }
+      } break;
+    }
+
+    if (blockStart + blockSize != ftell(fIn)) {
+      //printf("Block not fully read, %u bytes left\r\n", blockStart + blockSize - ftell(fIn));
+      UNREACHABLE();
+    }
+  }
+  fclose(fIn);
+
+  // Read complete, now fix pointers!
+  for (int i = 0; i < objectsStackCount; i++) {
+    Obj* obj = AS_OBJ(blockList->elements.data[i]);
+
+    if (obj->type == OBJ_FN) {
+      //Fix the module
+      ObjFn* fn = (ObjFn*)obj;
+      Obj* x = AS_OBJ((Value)fn->module);
+      fn->module = AS_OBJ(blockList->elements.data[(uint32_t)(x)-1]);
+      for (int i = 0; i < fn->constants.count; i++) {
+        Value v = fn->constants.data[i];
+        if (IS_OBJ(v)) {
+          int idx = (uint32_t)(AS_OBJ(v)) - 1;
+          fn->constants.data[i] = blockList->elements.data[idx];
+        }
+      }
+    }
+    else if (obj->type == OBJ_MODULE) {
+      ObjModule* modulee = (ObjModule*)obj;
+      for (int i = 0; i < modulee->variables.count; i++) {
+        Value v = modulee->variables.data[i];
+        if (IS_OBJ(v)) {
+          modulee->variables.data[i] = blockList->elements.data[(uint32_t)(AS_OBJ(v))-1];
+        }
+      }
+    }
+    else if (obj->type == OBJ_CLASS) {
+      ObjClass* c = (ObjClass*)obj;
+      int idxCoreVar = wrenSymbolTableFind(&coreModule->variableNames, c->name->value, c->name->length);
+      if (idxCoreVar != -1) {
+        // Core object, nothing to do
+      }
+      else {
+        UNREACHABLE();
+      }
+    }
+    else {
+      UNREACHABLE();
+    }
+  }
+
+  // TODO Test the first block is a function
+  ObjClosure* closure = wrenNewClosure(vm, AS_OBJ(blockList->elements.data[0]));
+  wrenPopRoot(vm);
+
+  wrenPushRoot(vm, (Obj*)closure);
+  ObjFiber* fiber = wrenNewFiber(vm, closure);
+  wrenPopRoot(vm); // closure.
+
+  WrenInterpretResult result = runInterpreter(vm, fiber);
+
+  vm->fiber = NULL;
+  vm->apiStack = NULL;
+  return result;
 }
 
 ObjClosure* wrenCompileSource(WrenVM* vm, const char* module, const char* source,
