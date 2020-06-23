@@ -18,8 +18,8 @@
 
 #if WREN_DEBUG_TRACE_MEMORY || WREN_DEBUG_TRACE_GC
   #include <time.h>
-  #include <stdio.h>
 #endif
+  #include <stdio.h>
 
 // The behavior of realloc() when the size is 0 is implementation defined. It
 // may return a non-NULL pointer which must not be dereferenced but nevertheless
@@ -1834,6 +1834,7 @@ inline ObjString* fread_ObjString(FILE* fIn, WrenVM* vm) {
 #define WRB_BLOCKTYPE_MODULE 2
 #define WRB_BLOCKTYPE_FUNCTION 3
 #define WRB_BLOCKTYPE_CORETYPE 4
+#define WRB_BLOCKTYPE_STRING 5
 
 long blockStart;
 long blockEnd;
@@ -1874,6 +1875,11 @@ void writeFn(FILE* fOut, ObjFn* fn) {
   // Code
   fwrite_uint32(fOut, fn->code.count);
   fwrite(fn->code.data, 1, fn->code.count, fOut);
+  fwrite_BlockEnd(fOut);
+}
+void writeString(FILE* fOut, ObjString* str) {
+  fwrite_BlockStart(fOut, WRB_BLOCKTYPE_STRING);
+  fwrite_ObjString(fOut, str);
   fwrite_BlockEnd(fOut);
 }
 
@@ -1941,6 +1947,9 @@ WrenInterpretResult wrenCompileToFile(WrenVM* vm, const char* module, const char
       else {
         UNREACHABLE();
       }
+    } 
+    else if (obj->type == OBJ_STRING) {
+      writeString(fOut, (ObjString*)obj);
     }
     else {
       UNREACHABLE();
@@ -1949,7 +1958,7 @@ WrenInterpretResult wrenCompileToFile(WrenVM* vm, const char* module, const char
     idxObjStack += 1;
   }
 
-  wrenPrint(closure->fn);
+  //wrenPrint(closure->fn);
 
   // Go back and write the block count, now we know.
   fseek(fOut, blockCountPos, SEEK_SET);
@@ -2058,6 +2067,13 @@ WrenInterpretResult wrenRunFromFile(WrenVM* vm)
           UNREACHABLE();
         }
       } break;
+      case WRB_BLOCKTYPE_STRING:
+      {
+        ObjString* str = fread_ObjString(fIn, vm);
+        wrenValueBufferWrite(vm, &blockList->elements, OBJ_VAL(str));
+      } break;
+      default:
+        UNREACHABLE();
     }
   }
   fclose(fIn);
@@ -2097,6 +2113,9 @@ WrenInterpretResult wrenRunFromFile(WrenVM* vm)
       else {
         UNREACHABLE();
       }
+    }
+    else if (obj->type == OBJ_STRING) {
+      // No pointers to fix
     }
     else {
       UNREACHABLE();
