@@ -1984,11 +1984,10 @@ WrenInterpretResult wrenRunFromFile(WrenVM* vm)
 
   ObjModule* coreModule = getModule(vm, NULL_VAL);
 
-  while (ftell(fIn) != fsize) {
+  for (int idxBlock = 0; idxBlock < blockCount; idxBlock++) {
     uint32_t blockSize = fread_uint32(fIn);
     uint8_t blockType = fread_uint8(fIn);
     long blockStart = ftell(fIn);
-    //printf("Block: %u, size: %u\r\n", blockType, blockSize);
 
     switch (blockType) {
       case WRB_BLOCKTYPE_HEADER:
@@ -2017,7 +2016,7 @@ WrenInterpretResult wrenRunFromFile(WrenVM* vm)
           varName[length] = '\0';
 
           Value varValue = fread_uint64(fIn, vm);
-          
+
           wrenSymbolTableAdd(vm, &modulee->variableNames, varName, length);
           wrenValueBufferWrite(vm, &modulee->variables, varValue);
         }
@@ -2046,7 +2045,6 @@ WrenInterpretResult wrenRunFromFile(WrenVM* vm)
         }
         free(code);
 
-
       } break;
       case WRB_BLOCKTYPE_CORETYPE:
       {
@@ -2060,11 +2058,6 @@ WrenInterpretResult wrenRunFromFile(WrenVM* vm)
           UNREACHABLE();
         }
       } break;
-    }
-
-    if (blockStart + blockSize != ftell(fIn)) {
-      //printf("Block not fully read, %u bytes left\r\n", blockStart + blockSize - ftell(fIn));
-      UNREACHABLE();
     }
   }
   fclose(fIn);
@@ -2116,7 +2109,7 @@ WrenInterpretResult wrenRunFromFile(WrenVM* vm)
 
   wrenPushRoot(vm, (Obj*)closure);
   ObjFiber* fiber = wrenNewFiber(vm, closure);
-  wrenPopRoot(vm); // closure.
+  wrenPopRoot(vm); 
 
   WrenInterpretResult result = runInterpreter(vm, fiber);
 
