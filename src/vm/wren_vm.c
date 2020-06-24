@@ -1475,7 +1475,7 @@ void wrenPrint(ObjFn* fn) {
     if (IS_FALSE(v)) descr = "false";
     if (IS_NULL(v)) descr = "null";
     if (IS_UNDEFINED(v)) descr = "undefined";
-    printf("#%u: %u, %s, %s\r\n", i, v, descr, modulee->variableNames.data[i]->value);
+    printf("#%u: %lld, %s, %s\r\n", i, v, descr, modulee->variableNames.data[i]->value);
   }
 
   printf("--- Function constants\r\n");
@@ -2079,7 +2079,7 @@ WrenInterpretResult wrenRunFromFile(WrenVM* vm)
   fclose(fIn);
 
   // Read complete, now fix pointers!
-  for (int i = 0; i < objectsStackCount; i++) {
+  for (int i = 0; i < blockList->elements.count; i++) {
     Obj* obj = AS_OBJ(blockList->elements.data[i]);
 
     if (obj->type == OBJ_FN) {
