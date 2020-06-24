@@ -300,6 +300,17 @@
 
 //file helpers
 
+  bool fileExists(const char* path)
+  {
+    FILE* file;
+    if ((file = fopen(path, "r")))
+    {
+      fclose(file);
+      return true;
+    }
+    return false;
+  }
+
   // Reads the contents of the file at [path] and returns it as a heap allocated
   // string.
   //
@@ -443,6 +454,65 @@
     pathFree(module);
 
     return result;
+  }
+
+  Path* pathFixRelativePath(Path* path)
+  {
+    // If it looks like a relative path, make it explicitly relative so that we
+    // can distinguish it from logical paths.
+    if (pathType(path->chars) == PATH_TYPE_SIMPLE)
+    {
+      Path* relative = pathNew(".");
+      pathJoin(relative, path->chars);
+
+      pathFree(path);
+      return relative;
+    }
+    return path;
+  }
+
+  WrenVM* initVMCompile()
+  {
+    WrenConfiguration config;
+    wrenInitConfiguration(&config);
+
+    config.resolveModuleFn = resolveModule;
+    config.loadModuleFn = readModule;
+    config.writeFn = vm_write;
+    config.errorFn = reportError;
+
+    // Since we're running in a standalone process, be generous with memory.
+    config.initialHeapSize = 1024 * 1024 * 100;
+    return wrenNewVM(&config);
+  }
+
+  Path* compileFile(const char* path)
+  {
+    char* source = readFile(path);
+    if (source == NULL)
+    {
+      fprintf(stderr, "Could not find file \"%s\".\n", path);
+      exit(66);
+    }
+
+    Path* module = pathNew(path);
+    module = pathFixRelativePath(module);
+    pathRemoveExtension(module);
+
+    Path* wrbFile = pathNew(module->chars);
+    pathAppendString(wrbFile, ".wrb");
+    if (!fileExists(wrbFile->chars)) {
+      WrenVM* vmCompile = initVMCompile(false);
+      if (wrenCompileToFile(vmCompile, module->chars, source, wrbFile) != WREN_RESULT_SUCCESS) {
+        fprintf(stderr, "Could not compile file.\n");
+        exit(1000);
+      }
+      wrenFreeVM(vmCompile);
+    }
+
+    pathFree(module);
+ 
+    return wrbFile;
   }
 
   int handle_args(int argc, const char* argv[]) 

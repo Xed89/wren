@@ -67,6 +67,7 @@ typedef struct
 //main helpers
   bool isModuleAnAPITest(const char* module);
   WrenInterpretResult runFile(WrenVM* vm, const char* path);
+  Path* compileFile(const char* path);
   int handle_args(int argc, const char* argv[]);
 
 #endif //WREN_TEST_H

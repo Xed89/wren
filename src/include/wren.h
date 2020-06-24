@@ -294,8 +294,8 @@ void wrenCollectGarbage(WrenVM* vm);
 WrenInterpretResult wrenInterpret(WrenVM* vm, const char* module,
                                   const char* source);
 
-WrenInterpretResult wrenCompileToFile(WrenVM* vm, const char* module, const char* source);
-WrenInterpretResult wrenRunFromFile(WrenVM* vm);
+WrenInterpretResult wrenCompileToFile(WrenVM* vm, const char* module, const char* source, const char* dstWrbFile);
+WrenInterpretResult wrenRunFromFile(WrenVM* vm, const char* wrbFile);
 
 // Creates a handle that can be used to invoke a method with [signature] on
 // using a receiver and arguments that are set up on the stack.

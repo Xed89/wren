@@ -41,7 +41,16 @@ int main(int argc, const char* argv[]) {
   bool isAPITest = isModuleAnAPITest(testName);
 
   vm = initVM(isAPITest);
-  WrenInterpretResult result = runFile(vm, testName);
+
+  WrenInterpretResult result;
+  if (argc == 3 && strcmp(argv[2], "--wrb") == 0) {
+    Path* wrbFile = compileFile(testName);
+    result = wrenRunFromFile(vm, wrbFile->chars);
+    pathFree(wrbFile);
+  }
+  else {
+    result = runFile(vm, testName);
+  }
 
   if(isAPITest) {
     exitCode = APITest_Run(vm, testName);

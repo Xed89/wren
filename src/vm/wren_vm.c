@@ -1900,12 +1900,12 @@ void writeModule(FILE* fOut, ObjModule* modulee) {
   fwrite_BlockEnd(fOut);
 }
 
-WrenInterpretResult wrenCompileToFile(WrenVM* vm, const char* module, const char* source)
+WrenInterpretResult wrenCompileToFile(WrenVM* vm, const char* module, const char* source, const char* dstWrbFile)
 {
   ObjClosure* closure = wrenCompileSource(vm, module, source, false, true);
   if (closure == NULL) return WREN_RESULT_COMPILE_ERROR;
 
-  FILE* fOut = fopen("out.wrb", "wb");
+  FILE* fOut = fopen(dstWrbFile, "wb");
   if (fOut == NULL) return WREN_RESULT_COMPILE_ERROR;
 
   objectsStack = malloc(sizeof(Obj*) * objectsStackCapacity);
@@ -1971,9 +1971,9 @@ WrenInterpretResult wrenCompileToFile(WrenVM* vm, const char* module, const char
   return WREN_RESULT_SUCCESS;
 }
 
-WrenInterpretResult wrenRunFromFile(WrenVM* vm)
+WrenInterpretResult wrenRunFromFile(WrenVM* vm, const char* wrbFile)
 {
-  FILE* fIn = fopen("out.wrb", "rb");
+  FILE* fIn = fopen(wrbFile, "rb");
   if (fIn == NULL) return WREN_RESULT_COMPILE_ERROR;
 
   fseek(fIn, 0, SEEK_END);
