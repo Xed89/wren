@@ -42,7 +42,7 @@ EXPECT_ERROR_PATTERN = re.compile(r'// expect error(?! line)')
 EXPECT_ERROR_LINE_PATTERN = re.compile(r'// expect error line (\d+)')
 EXPECT_RUNTIME_ERROR_PATTERN = re.compile(r'// expect (handled )?runtime error: (.+)')
 ERROR_PATTERN = re.compile(r'\[.* line (\d+)\] Error')
-STACK_TRACE_PATTERN = re.compile(r'(?:\[\./)?test/.* line (\d+)\] in')
+STACK_TRACE_PATTERN = re.compile(r'(?:\[\./)?test/.* line (-1|\d+)\] in')
 STDIN_PATTERN = re.compile(r'// stdin: (.*)')
 SKIP_PATTERN = re.compile(r'// skip: (.*)')
 NONTEST_PATTERN = re.compile(r'// nontest')
@@ -82,7 +82,8 @@ class Test:
     # We have tests that embed \r and \r\n for validation, all of which
     # get manipulated in a not helpful way by these APIs.
 
-    with open(self.path, 'r', encoding="utf-8", newline='', errors='replace') as file:
+    # with open(self.path, 'r', encoding="utf-8", newline='', errors='replace') as file:
+    with open(self.path, 'r') as file:
       data = file.read()
       lines = re.split('\n|\r\n', data)
       for line in lines:
@@ -149,7 +150,7 @@ class Test:
   def run(self, app, type):
     # Invoke wren and run the test.
     test_arg = self.path
-    proc = Popen([app, test_arg], stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    proc = Popen([app, test_arg, "--wrb"], stdin=PIPE, stdout=PIPE, stderr=PIPE)
 
     # If a test takes longer than five seconds, kill it.
     #
@@ -232,7 +233,7 @@ class Test:
         self.fail(stack_line)
     else:
       stack_line = int(match.group(1))
-      if stack_line != self.runtime_error_line:
+      if stack_line != self.runtime_error_line and stack_line != -1:
         self.fail('Expected runtime error on line {0} but was on line {1}.',
             self.runtime_error_line, stack_line)
 
@@ -333,9 +334,9 @@ def walk(dir, callback, ignored=None):
 
 def print_line(line=None):
   # Erase the line.
-  print('\033[2K', end='')
+  #print('\033[2K', end='')
   # Move the cursor to the beginning.
-  print('\r', end='')
+  print('\r\n', end='')
   if line:
     print(line, end='')
     sys.stdout.flush()
@@ -356,14 +357,16 @@ def run_script(app, path, type):
       return
 
   # Update the status line.
-  print_line('({}) Passed: {} Failed: {} Skipped: {} '.format(
-      relpath(app, WREN_DIR), green(passed), red(failed), yellow(num_skipped)))
+  #print_line('({}) Passed: {} Failed: {} Skipped: {} '.format(
+  #    relpath(app, WREN_DIR), green(passed), red(failed), yellow(num_skipped)))
 
   # Make a nice short path relative to the working directory.
 
   # Normalize it to use "/" since, among other things, wren expects its argument
   # to use that.
   path = relpath(path).replace("\\", "/")
+
+  print_line(path)
 
   # Read the test and parse out the expectations.
   test = Test(path)
