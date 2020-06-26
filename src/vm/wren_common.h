@@ -29,6 +29,10 @@
   #define WREN_NAN_TAGGING 1
 #endif
 
+#ifndef WREN_METHOD_MAP
+  #define WREN_METHOD_MAP 1
+#endif
+
 // If true, the VM's interpreter loop uses computed gotos. See this for more:
 // http://gcc.gnu.org/onlinedocs/gcc-3.1.1/gcc/Labels-as-Values.html
 // Enabling this speeds up the main dispatch loop a bit, but requires compiler

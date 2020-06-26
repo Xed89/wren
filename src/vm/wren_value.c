@@ -53,6 +53,9 @@ ObjClass* wrenNewSingleClass(WrenVM* vm, int numFields, ObjString* name)
 
   wrenPushRoot(vm, (Obj*)classObj);
   wrenMethodBufferInit(&classObj->methods);
+#ifdef WREN_METHOD_MAP
+  wrenIntBufferInit(&classObj->methodsMap);
+#endif
   wrenPopRoot(vm);
 
   return classObj;
@@ -76,10 +79,19 @@ void wrenBindSuperclass(WrenVM* vm, ObjClass* subclass, ObjClass* superclass)
   }
 
   // Inherit methods from its superclass.
+#ifdef WREN_METHOD_MAP
+  for (int i = 0; i < superclass->methodsMap.count; i++)
+  {
+    int symbol = superclass->methodsMap.data[i];
+    Method m = superclass->methods.data[i];
+    wrenBindMethod(vm, subclass, symbol, m);
+  }
+#else
   for (int i = 0; i < superclass->methods.count; i++)
   {
     wrenBindMethod(vm, subclass, i, superclass->methods.data[i]);
   }
+#endif
 }
 
 ObjClass* wrenNewClass(WrenVM* vm, ObjClass* superclass, int numFields,
@@ -116,18 +128,96 @@ ObjClass* wrenNewClass(WrenVM* vm, ObjClass* superclass, int numFields,
   return classObj;
 }
 
+int binarySearch(IntBuffer* methodsMap, int value) {
+  int first = 0;
+  int last = methodsMap->count - 1;
+  int middle = (first + last) / 2;
+
+  while (first <= last) {
+    int middleVal = methodsMap->data[middle];
+    if (middleVal < value)
+      first = middle + 1;
+    else if (middleVal == value) {
+      return middle;
+    }
+    else
+      last = middle - 1;
+
+    middle = (first + last) / 2;
+  }
+  return -1;
+}
+int binarySearchForInsert(IntBuffer* methodsMap, int value) {
+  int first = 0;
+  int last = methodsMap->count - 1;
+  int middle = (first + last) / 2;
+
+  while (first <= last) {
+    int middleVal = methodsMap->data[middle];
+    if (middleVal < value)
+      first = middle + 1;
+    else if (middleVal == value) {
+      return middle;
+    }
+    else
+      last = middle - 1;
+
+    middle = (first + last) / 2;
+  }
+  return -first-1;
+}
+
+#ifdef WREN_METHOD_MAP
+Method* wrenFindMethod(ObjClass* classObj, int symbol) {
+  int p = binarySearch(&classObj->methodsMap, symbol);
+  if (p == -1) {
+    return NULL;
+  }
+  return &classObj->methods.data[p];
+}
+#endif
+
 void wrenBindMethod(WrenVM* vm, ObjClass* classObj, int symbol, Method method)
 {
+#ifdef WREN_METHOD_MAP
+  //// Make sure the buffer is big enough to contain the symbol's index.
+  //if (symbol >= classObj->methodsMap.count)
+  //{
+  //  wrenIntBufferFill(vm, &classObj->methodsMap, 0,
+  //                    symbol - classObj->methodsMap.count + 1);
+  //}
+  //classObj->methodsMap.data[symbol] = classObj->methods.count;
+  
+  int p = binarySearchForInsert(&classObj->methodsMap, symbol);
+  if (p < 0) {
+    p = -(p+1);
+    wrenIntBufferWrite(vm, &classObj->methodsMap, 0);
+    wrenMethodBufferWrite(vm, &classObj->methods, method);
+    for (int i = classObj->methodsMap.count - 1; i > p; i--) {
+      classObj->methodsMap.data[i] = classObj->methodsMap.data[i - 1];
+      classObj->methods.data[i] = classObj->methods.data[i - 1];
+    }
+  }
+  classObj->methodsMap.data[p] = symbol;
+  classObj->methods.data[p] = method;
+
+  // Check
+  for (int i = 1; i < classObj->methodsMap.count; i++) {
+    ASSERT(classObj->methodsMap.data[i] > classObj->methodsMap.data[i - 1], "Wrong order");
+  }
+
+#else
   // Make sure the buffer is big enough to contain the symbol's index.
   if (symbol >= classObj->methods.count)
   {
     Method noMethod;
     noMethod.type = METHOD_NONE;
     wrenMethodBufferFill(vm, &classObj->methods, noMethod,
-                         symbol - classObj->methods.count + 1);
+                          symbol - classObj->methods.count + 1);
   }
 
   classObj->methods.data[symbol] = method;
+#endif
 }
 
 ObjClosure* wrenNewClosure(WrenVM* vm, ObjFn* fn)
@@ -1019,6 +1109,9 @@ static void blackenClass(WrenVM* vm, ObjClass* classObj)
   // Keep track of how much memory is still in use.
   vm->bytesAllocated += sizeof(ObjClass);
   vm->bytesAllocated += classObj->methods.capacity * sizeof(Method);
+#ifdef WREN_METHOD_MAP
+  vm->bytesAllocated += classObj->methodsMap.capacity * sizeof(int);
+#endif 
 }
 
 static void blackenClosure(WrenVM* vm, ObjClosure* closure)
@@ -1220,6 +1313,9 @@ void wrenFreeObj(WrenVM* vm, Obj* obj)
   {
     case OBJ_CLASS:
       wrenMethodBufferClear(vm, &((ObjClass*)obj)->methods);
+#ifdef WREN_METHOD_MAP
+      wrenIntBufferClear(vm, &((ObjClass*)obj)->methodsMap);
+#endif 
       break;
 
     case OBJ_FIBER:

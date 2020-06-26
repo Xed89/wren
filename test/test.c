@@ -503,9 +503,9 @@
     pathAppendString(wrbFile, ".wrb");
     if (!fileExists(wrbFile->chars)) {
       WrenVM* vmCompile = initVMCompile(false);
-      if (wrenCompileToFile(vmCompile, module->chars, source, wrbFile) != WREN_RESULT_SUCCESS) {
+      if (wrenCompileToFile(vmCompile, module->chars, source, wrbFile->chars) != WREN_RESULT_SUCCESS) {
         fprintf(stderr, "Could not compile file.\n");
-        exit(1000);
+        exit(65);
       }
       wrenFreeVM(vmCompile);
     }

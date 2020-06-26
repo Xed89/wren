@@ -403,6 +403,9 @@ struct sObjClass
   // really low load factor. Since methods are pretty small (just a type and a
   // pointer), this should be a worthwhile trade-off.
   MethodBuffer methods;
+#ifdef WREN_METHOD_MAP
+  IntBuffer methodsMap;
+#endif
 
   // The name of the class.
   ObjString* name;
@@ -631,6 +634,10 @@ void wrenBindSuperclass(WrenVM* vm, ObjClass* subclass, ObjClass* superclass);
 // Creates a new class object as well as its associated metaclass.
 ObjClass* wrenNewClass(WrenVM* vm, ObjClass* superclass, int numFields,
                        ObjString* name);
+
+#ifdef WREN_METHOD_MAP
+Method* wrenFindMethod(ObjClass* classObj, int symbol);
+#endif
 
 void wrenBindMethod(WrenVM* vm, ObjClass* classObj, int symbol, Method method);
 
